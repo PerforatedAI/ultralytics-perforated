@@ -1,0 +1,27 @@
+# Cityscapes 8-class object detection, converted from the mmdet COCO JSONs.
+#
+# This is NOT ultralytics/cfg/datasets/cityscapes.yaml, which is the 19-class
+# semantic segmentation set. This file is the detection set the YOLOv5 and
+# YOLOv8 PerforatedAI arms trained on, so results stay comparable to
+# pai_params_vs_map50_v8.png and its siblings.
+#
+# Build it with:
+#   python tools/prepare_cityscapes_det.py \
+#       --cityscapes-root /path/to/data/cityscapes \
+#       --out-root       /path/to/datasets/cityscapes-det
+
+path: cityscapes-det # dataset root dir, relative to the ultralytics datasets dir
+train: images/train # 2975 images
+val: images/val # 500 images
+
+# Class order matches the mmdet category_id ordering exactly. convert_coco
+# maps category_id N to class N-1, so category_ids 1..8 land on 0..7 here.
+names:
+    0: person
+    1: rider
+    2: car
+    3: truck
+    4: bus
+    5: train
+    6: motorcycle
+    7: bicycle

@@ -1,0 +1,169 @@
+# YOLO26l Cityscapes fine-tune, PerforatedAI production configuration.
+#
+# Derived from cfg/yolo26n_cityscapes_pai.yaml on 2026-09-09. Differences:
+#
+#   model: yolo26l.pt
+#   batch: 12, nbs: 12  -- measured 16.5 GB reserved on the 23 GB A10G;
+#                          batch 24 OOMs and ultralytics silently halves it
+#   lr0: 0.0001         -- see below
+#
+# lr0 is 1e-4, not the nano's 1e-3. On the 2026-09-07 large arms every best
+# epoch in both the plain and the dendrite arm came at 1e-4, and 1e-3 was
+# destructive: the neuron-only warmup fell from 0.2225 to 0.1607 until the
+# plateau dropped the LR, and both post-restructure neuron phases peaked
+# within 8 epochs at 1e-3 and then collapsed (0.3689 -> 0.3163,
+# 0.3717 -> 0.3443) while the plateau waited out its patience. Each
+# restructure restarts at lr0 with a fresh AdamW state, so lr0 is the LR
+# every cycle begins at. lrf stays 0.01, so the floor is 1e-6 and the two
+# plateau drops still cover a 100x range.
+#
+# Both arms read this file, so the plain arm moves to 1e-4 with it.
+#
+# Dendrite arm:
+#   python train_pai.py cfg/yolo26l_cityscapes_pai.yaml \
+#       --name large_l0_l1_l2_first --perforate-model \
+#       --n-epochs-to-switch 15 --initial-correlation-batches 20
+#
+# Matched plain arm:
+#   python train_pai.py cfg/yolo26l_cityscapes_pai.yaml --name large_plain
+
+model: yolo26l.pt
+data: cfg/cityscapes-det.yaml
+
+# ========================Horizon and batch===================================
+# 2000 epochs is a hang detector, not a ceiling either arm is meant to
+# reach. At the 37.6 s/epoch the 300-epoch arms measured on the A10G it is
+# 21 hours, so a run that gets there has stopped making progress in a way
+# nothing else caught. Same role as decision 3 of
+# pai_pretraining_decisions.md, which used 2000 for the same reason.
+#
+# Ending a run is now owned by the arm rather than by this number. The
+# dendrite arm stops when PAI signals training_complete, and the plain arm
+# stops on the patience below. The 300-epoch arms showed why the old
+# ceiling had to go: the dendrite arm's last cycle was still the newest
+# architecture when the ceiling cut it off.
+#
+# Nothing else reads epochs any more. It set the slope of the LR ramp until
+# the schedule became a plateau on mAP, and close_mosaic, the only other
+# consumer, is off.
+#
+# batch 48 was chosen on two counts. The smoke peaked at 4.74 GB of the
+# A10G's 23 GB at batch 16, so 48 has headroom, and accumulate is
+# round(nbs / batch), so 48 rounds 64/48 to 1 and runs one backward per
+# optimizer.step. The earlier batch 16 accumulated four and PAI logged 7065
+# warnings about dendrite outs and neuron errors stacking. Do not inherit the
+# v8 arms' batch 64, which was measured on a 48 GB L40S.
+#
+# 2975 train images at batch 48 gives 62 iterations per epoch, so
+# initial_correlation_batches of 20 fits inside one epoch with margin.
+epochs: 2000
+batch: 12
+imgsz: 640 # matches the mmyolo v8 recipe's img_scale (640, 640)
+workers: 8
+
+# ========================Optimizer===========================================
+# Named explicitly rather than left at 'auto'. At 47 iterations per epoch
+# (nbs=64) over 300 epochs, 'auto' evaluates 14100 iterations, which is over
+# its 10000 threshold, so it would pick SGD here and AdamW in the 40-epoch
+# smoke. Naming it keeps the rehearsal and the real run on one optimizer.
+#
+# warmup_bias_lr MUST be 0.0. The 'auto' path zeroes it for Adam-family
+# optimizers, and naming AdamW explicitly skips that, leaving the default 0.1
+# against an lr0 of 0.001. That is a 100x bias learning rate for the first 3
+# warmup epochs.
+#
+# weight_decay is 0, not ultralytics' 0.0005. PAI logs "For PAI training it
+# is recommended to not use weight decay in your optimizer" at startup, and
+# pai_pretraining_decisions.md 1.10 already settled this for the v8 COCO run
+# as a deliberate departure from the reference's 0.001.
+#
+# NOTE: the 2026-08-31 smoke ran with the ultralytics default 0.0005, before
+# this was set. Neither arm here is comparable to that run on this axis.
+#
+# lr0 and lrf are read by the plateau schedule in pai/trainer.py, not by
+# ultralytics' epoch keyed ramp. lr0 is where the run and every dendrite
+# cycle after a restructure start, and lrf sets the floor at lr0 * lrf =
+# 1e-5. The schedule multiplies by 0.1 on each plateau of mAP50-95, so the
+# 100x range is spent in two drops, which is the range and the mechanism
+# the v5 and v8 Cityscapes arms used.
+#
+# The old ramp is why this had to change. It was keyed to epochs, and a
+# restructure restarts it, so the 300-epoch dendrite arms ended at 8.3e-4
+# and 9.8e-4 while the plain arm ended at 1.33e-5.
+optimizer: AdamW
+lr0: 0.0001
+lrf: 0.01
+warmup_bias_lr: 0.0
+weight_decay: 0.0
+
+# ========================Stopping============================================
+# patience is the plain arm's terminator. With no reachable epoch ceiling it
+# is the only thing that ends that arm. 48 is 8 times the plateau patience
+# of 6, the same 8x rule the v5 and v8 Cityscapes configs used, so it clears
+# a full two-drop sequence plus the epochs the last drop needs to show what
+# it bought.
+#
+# The dendrite arm never sees this value. train_pai.py sets patience 0
+# whenever --perforate-model is passed, and 0 becomes float('inf') in
+# EarlyStopping.__init__, so only PAI's training_complete stops that arm.
+#
+# That override is not optional. EarlyStopping votes at trainer.py:616,
+# nineteen lines before on_fit_epoch_end where PAI is consulted, and
+# self.stop is an OR-accumulate, so PAI could never veto it. Worse, both
+# watch the same signal and read it oppositely: a plateau is
+# EarlyStopping's evidence that training is done, and PAI's trigger to add
+# a dendrite.
+#
+# The two arms therefore end on different rules. That is the price of an
+# unbounded horizon, and it is paid in epochs rather than in the number,
+# since both arms are scored on their best epoch.
+patience: 48
+
+# ========================Validation cadence==================================
+# Mandatory. PAI counts n_epochs_to_switch in validations, not train epochs,
+# so anything other than validating every epoch changes what that number
+# means.
+val: True
+
+# ========================Disabled on purpose=================================
+# amp: measured to break dendrite training on the v8 arms
+# (pai_pretraining_decisions.md 1.4b, "off, not usable"). A fix was attempted
+# there and did not hold.
+#
+# close_mosaic: fires at epoch (epochs - close_mosaic), an absolute epoch
+# number. Neither arm knows where training ends -- PAI stops when it signals
+# training_complete -- so a trigger derived from a safety ceiling would fire
+# in one arm and not the other. Same reasoning that dropped
+# mmdet.PipelineSwitchHook from the v8 configs. Costs both arms about one
+# point of absolute mAP, equally.
+#
+# compile: torch.compile over PAI-wrapped modules is untested.
+amp: False
+close_mosaic: 0
+compile: False
+
+# ========================Reproducibility=====================================
+# Both arms share this seed, so they see the same shuffle and the same
+# augmentation stream until the first dendrite is added.
+#
+# deterministic is False on purpose, mirroring the v8 configs. Setting it True
+# makes torch.use_deterministic_algorithms(True) raise on any op without a
+# deterministic CUDA kernel, and several ops in this detection stack qualify.
+seed: 6502
+deterministic: False
+
+# ========================Output==============================================
+# project doubles as the W&B project name. wb.py takes args.project with '/'
+# replaced by '-', so anything with a slash in it lands in W&B under a
+# mangled name. Keep it slash free so the local run dir and the W&B project
+# are the same string.
+#
+# name is a placeholder. Both arms override it with --name, and exist_ok
+# False means a repeat run lands in a -2 directory rather than overwriting.
+project: yolo26-cityscapes
+name: yolo26n_cityscapes
+exist_ok: False
+plots: True
+
+# nbs matched to batch so accumulate is round(12 / 12) = 1
+nbs: 12
