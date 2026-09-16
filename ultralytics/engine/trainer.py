@@ -135,6 +135,12 @@ class BaseTrainer:
         """
         self.args = get_cfg(cfg, overrides)
         self.check_resume(overrides)
+        if self.args.perforate:
+            if self.args.time:
+                raise ValueError("'time' rebuilds the scheduler every epoch, which resets the plateau 'perforate' uses.")
+            LOGGER.info("perforate=True: setting patience=0 so PerforatedAI owns stopping")
+            # EarlyStopping treats 0 as never
+            self.args.patience = 0
         if getattr(self.args, "augmentations", None) and not isinstance(self.args.augmentations[0], dict):
             import albumentations as A
 
@@ -261,6 +267,9 @@ class BaseTrainer:
         else:
             self.lf = lambda x: max(1 - x / self.epochs, 0) * (1.0 - self.args.lrf) + self.args.lrf  # linear
         self.scheduler = optim.lr_scheduler.LambdaLR(self.optimizer, lr_lambda=self.lf)
+        if self.args.perforate:
+            from ultralytics.utils.perforated import build_plateau_scheduler
+            self.scheduler = build_plateau_scheduler(self)
 
     def _get_warmup_iterations(self, num_batches):
         """Return warmup iterations, leaving at least the final epoch for regular training."""
@@ -322,6 +331,10 @@ class BaseTrainer:
     def _setup_train(self):
         """Configure model, optimizer, dataloaders, and training utilities before the training loop."""
         ckpt = self.setup_model()
+        if self.args.perforate:
+            from ultralytics.utils.perforated import perforate_detection_model, register_perforated_callbacks
+            self.model = perforate_detection_model(self.model, self.args, save_name=str(self.save_dir / "pai"))
+            register_perforated_callbacks(self)
         self.model = self.model.to(self.device)
         # channels_last (NHWC) is CUDA-only: lossless and Tensor-Core friendly there, but numerically wrong
         # on MPS and no benefit on CPU
@@ -744,8 +757,13 @@ class BaseTrainer:
         # Resync each poisoned EMA tensor from the live model where finite; any tensor that is non-finite in both is
         # left for the nan_to_num_ pass below, so a usable checkpoint is always written.
         ema = self.ema.ema
+        model = unwrap_model(self.model)
+        if self.args.perforate:
+            from perforatedai import utils_perforatedai as UPA
+            # Deep Copy and convert Perforated Model -> Vanilla Model
+            ema = model = UPA.prepare_final_model(ema)
         if not all(torch.isfinite(v).all() for v in ema.state_dict().values() if isinstance(v, torch.Tensor)):
-            model_sd = unwrap_model(self.model).state_dict()
+            model_sd = model.state_dict()
             for k, v in ema.state_dict().items():
                 if isinstance(v, torch.Tensor) and not torch.isfinite(v).all() and torch.isfinite(model_sd[k]).all():
                     v.copy_(model_sd[k])
@@ -969,6 +987,10 @@ class BaseTrainer:
 
     def final_eval(self):
         """Perform final evaluation and validation for the YOLO model."""
+        if self.args.perforate:
+            from ultralytics.utils.perforated import perforated_fit_epoch_end
+            # Prevent the final validation from restructuring the model
+            self.callbacks["on_fit_epoch_end"].remove(perforated_fit_epoch_end)
         model = self.best if self.best.exists() else None
         with torch_distributed_zero_first(LOCAL_RANK):  # strip only on GPU 0; other GPUs should wait
             if RANK in {-1, 0}:

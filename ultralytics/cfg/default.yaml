@@ -137,3 +137,49 @@ cfg: # (str, optional) path to a config.yaml that overrides defaults
 
 # Tracker settings ------------------------------------------------------------------------------------------------------
 tracker: tracktrack.yaml # (str) tracker config: botsort.yaml, bytetrack.yaml, ocsort.yaml, deepocsort.yaml, fasttrack.yaml, tracktrack.yaml
+
+# PerforatedAI settings ------------------------------------------------------------------------------------------------
+perforate: False # (bool) train with PerforatedAI dendrites
+perforate_modules: [] # (list[str]) module paths to perforate (i.e. model.23.one2one_cv2.0.0); empty perforates every Conv in the model
+testing_dendrite_capacity: False # (bool) PAI debug mode, switches every epoch and keeps every dendrite to verify they wire up
+pai_load_folder: # (str, optional) saved PAI system folder to resume from
+pai_load_stage: latest # (str) stage inside pai_load_folder, i.e. latest, best_model, switch_3
+# Switching (When a neuron cycle ends and dendrites are added)
+switch_mode: history # (str) history (no improvement for n_epochs_to_switch), fixed (every fixed_switch_num), every_time, none
+n_epochs_to_switch: 5 # (int) validations without improvement before a history switch, keep above plateau_patience
+history_lookback: 1 # (int) validations averaged when judging improvement
+initial_history_after_switches: 0 # (int) validations to run after a switch before checking for the next one
+fixed_switch_num: 15 # (int) epochs between switches in fixed mode
+first_fixed_switch_num: 1 # (int) minimum epochs before the first fixed switch, ignored when below fixed_switch_num
+reset_best_score_on_switch: False # (bool) forget the best score at a switch so the new dendrites need not beat it at once
+improvement_threshold: [0.001, 0.0001, 0.0] # (list[float]) relative gain that counts as a new best score, per dendrite count
+improvement_threshold_raw: 1.0e-5 # (float) absolute gain that counts as a new best score
+# Dendrites (How many and how they start)
+max_dendrites: 5 # (int) dendrites to add before PAI reports training complete
+max_dendrite_tries: 2 # (int) random re-initializations of a failed dendrite before PAI reports training complete
+retain_all_dendrites: False # (bool) keep a dendrite even when it does not improve the score
+candidate_weight_initialization_multiplier: 0.01 # (float) scale of random dendrite weights
+candidate_weight_init_by_main: False # (bool) initialize dendrite weights from the neuron weights instead of at random
+# Learning rate across switches
+find_best_lr: True # (bool) sweep earlier learning rates when dendrites are added
+dont_give_up_unless_learning_rate_lowered: True # (bool) the sweep must lower the learning rate at least once
+param_vals_setting: update_epoch # (str) scheduler epoch counter: total_epoch, update_epoch (reset at each switch), neuron_epoch_start
+plateau_patience: 6 # (int) validations without improvement before the plateau schedule drops lr
+plateau_factor: 0.1 # (float) lr multiplier at each plateau drop, floor is lr0 * lrf
+plateau_threshold: 0.001 # (float) relative improvement that resets plateau_patience
+# Output
+pai_verbose: False # (bool) PAI progress prints
+pai_extra_verbose: False # (bool) PAI per-module prints
+pai_silent: False # (bool) suppress every PAI print
+drawing_pai: True # (bool) write PAI score graphs
+drawing_extra_graphs: True # (bool) write the extra PAI graphs
+save_old_graph_scores: True # (bool) keep earlier graph scores in the csv
+test_saves: True # (bool) save the model at every switch, good for inspection and bad for disk
+using_safe_tensors: True # (bool) write PAI saves as safetensors
+# Perforated Backpropagation settings, require the perforatedbp package and a license ----------------------------------
+perforated_backpropagation: True # (bool) train dendrites with Perforated Backpropagation; False uses open-source dendrite mode
+initial_correlation_batches: 20 # (int) batches of correlation warmup before dendrite weights update, keep below iterations per epoch
+p_epochs_to_switch: 2 # (int) dendrite epochs without a correlation gain before switching back to neurons
+cap_at_n: False # (bool) cap each dendrite cycle at the length of the first neuron cycle
+pai_improvement_threshold: 0.1 # (float) relative correlation gain in one epoch that resets p_epochs_to_switch
+pai_improvement_threshold_raw: 1.0e-5 # (float) absolute correlation gain in one epoch that resets p_epochs_to_switch
