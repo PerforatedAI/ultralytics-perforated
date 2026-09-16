@@ -333,7 +333,7 @@ class BaseTrainer:
         ckpt = self.setup_model()
         if self.args.perforate:
             from ultralytics.utils.perforated import perforate_detection_model, register_perforated_callbacks
-            self.model = perforate_detection_model(self.model, self.args, save_name=str(self.save_dir / "pai"))
+            self.model = perforate_detection_model(self.model, self.args, save_name=f"{self.save_dir.name}_pai")  # PAI rejects "/"
             register_perforated_callbacks(self)
         self.model = self.model.to(self.device)
         # channels_last (NHWC) is CUDA-only: lossless and Tensor-Core friendly there, but numerically wrong
