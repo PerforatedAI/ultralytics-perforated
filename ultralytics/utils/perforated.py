@@ -16,9 +16,10 @@ from perforatedai import globals_perforatedai as GPA
 from ultralytics.utils import LOGGER
 from ultralytics.utils.torch_utils import ModelEMA
 
-# Types PAI wraps when perforate_modules is empty.
-# Conv is the ultralytics conv block. Conv2d is the bare predictor at the end of each head branch.
-PERFORATE_TYPE_NAMES = ["Conv", "Conv2d"]
+# Types PAI wraps when perforate_modules is empty, matched by exact class name.
+# Conv and DWConv are the ultralytics conv blocks, every Conv subclass in yolo26 must be listed.
+# Conv2d is the bare predictor at the end of each head branch.
+PERFORATE_TYPE_NAMES = ["Conv", "DWConv", "Conv2d"]
 
 # Shape -> [batch, channels, height, width]
 OUTPUT_DIMENSIONS = [-1, 0, -1, -1]
@@ -257,6 +258,25 @@ def perforate_detection_model(model: nn.Module, args: Any, save_name: str) -> nn
         model = UPA.load_system(model, args.pai_load_folder, args.pai_load_stage, switch_call=True)
         LOGGER.info(f"PerforatedAI loaded system {args.pai_load_stage} from {args.pai_load_folder}")
     return model
+
+def prepare_final_model(model: nn.Module) -> nn.Module:
+    """
+    Deep copy the model with dendrites folded in, keeping the layer bookkeeping the forward pass reads.
+
+    Args:
+        model (nn.Module): Perforated DetectionModel, typically the EMA.
+
+    Returns:
+        (nn.Module): Final model ready to save and validate.
+    """
+    final_model = UPA.prepare_final_model(model)
+    for src, dst in zip(model.model, final_model.model):
+        if hasattr(dst, "f"):
+            continue
+        src = getattr(src, "main_module", src)
+        for key in ("f", "i", "type", "np"):
+            setattr(dst, key, getattr(src, key))
+    return final_model
 
 def check_correlation_batches_fit(trainer: Any) -> None:
     """

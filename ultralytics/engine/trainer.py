@@ -759,9 +759,9 @@ class BaseTrainer:
         ema = self.ema.ema
         model = unwrap_model(self.model)
         if self.args.perforate:
-            from perforatedai import utils_perforatedai as UPA
-            # Deep Copy and convert Perforated Model -> Vanilla Model
-            ema = model = UPA.prepare_final_model(ema)
+            from ultralytics.utils.perforated import prepare_final_model
+            # Deep copy with dendrites folded in, still needs perforatedai to load
+            ema = model = prepare_final_model(ema)
         if not all(torch.isfinite(v).all() for v in ema.state_dict().values() if isinstance(v, torch.Tensor)):
             model_sd = model.state_dict()
             for k, v in ema.state_dict().items():

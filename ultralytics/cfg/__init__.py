@@ -531,6 +531,8 @@ def check_cfg(cfg: dict, hard: bool = True) -> None:
                         f"'{k}' must be a bool or str (i.e. '{k}=True' or '{k}=max-autotune')"
                     )
                 cfg[k] = bool(v)
+            elif k == "perforate_modules" and isinstance(v, str):  # CLI 'perforate_modules=[a.b,c.d]' stays a string
+                cfg[k] = [s.strip(" '\"") for s in v.strip("[]").split(",") if s.strip(" '\"")]
             elif k == "amp":
                 if not isinstance(v, bool) and str(v).lower() not in {"fp16", "bf16", "fp32"}:
                     raise ValueError(
