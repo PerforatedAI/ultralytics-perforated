@@ -140,9 +140,15 @@ class BaseTrainer:
         if self.args.perforate:
             if self.args.time:
                 raise ValueError("'time' rebuilds the scheduler every epoch, which resets the plateau 'perforate' uses.")
-            LOGGER.info("perforate=True: setting patience=0 so PerforatedAI owns stopping")
+            LOGGER.info("perforate=True: setting patience=0 so PerforatedAI owns stopping, and channels_last=False")
             # EarlyStopping treats 0 as never
             self.args.patience = 0
+            # PAI epoch-end leaves weights NCHW-contiguous while fused AdamW state needs NHWC
+            # Disable `channels_last` to prevent next step from crashing
+            self.args.channels_last = False
+            if "epochs" not in (overrides or {}) and not self.args.resume:
+                LOGGER.info("perforate=True: setting epochs=400 as the ceiling, dendrite runs outlast the default 100")
+                self.args.epochs = 400
         if getattr(self.args, "augmentations", None) and not isinstance(self.args.augmentations[0], dict):
             import albumentations as A
 
@@ -334,7 +340,10 @@ class BaseTrainer:
         """Configure model, optimizer, dataloaders, and training utilities before the training loop."""
         ckpt = self.setup_model()
         if self.args.perforate:
+            from perforatedai import globals_perforatedai as GPA
             from perforatedbp.integrations.yolo import perforate_detection_model, register_perforated_callbacks
+
+            GPA.pc.set_configuration_confirmed(self.args.configuration_confirmed)
             self.model = perforate_detection_model(self.model, self.args, save_name=f"{self.save_dir.name}_pai")  # PAI rejects "/"
             register_perforated_callbacks(self)
         self.model = self.model.to(self.device)

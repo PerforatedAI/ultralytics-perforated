@@ -314,6 +314,7 @@ CFG_BOOL_KEYS = frozenset(
         # perforated options
         "perforate",
         "testing_dendrite_capacity",
+        "configuration_confirmed",
         "reset_best_score_on_switch",
         "retain_all_dendrites",
         "candidate_weight_init_by_main",
