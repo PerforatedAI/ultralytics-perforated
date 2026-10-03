@@ -140,7 +140,7 @@ tracker: tracktrack.yaml # (str) tracker config: botsort.yaml, bytetrack.yaml, o
 
 # PerforatedAI settings ------------------------------------------------------------------------------------------------
 perforate: False # (bool) train with PerforatedAI dendrites
-perforate_modules: [] # (list[str]) module paths to perforate (i.e. model.23.one2one_cv2.0.0); empty perforates every Conv in the model
+perforate_modules: [model.23.one2one_cv2.0.0, model.23.one2one_cv2.1.0, model.23.one2one_cv2.2.0] # (list[str]) module paths to perforate, default is the first Conv of the YOLO26 one2one box branch per level; [] perforates every Conv in the model
 testing_dendrite_capacity: False # (bool) PAI debug mode, switches every epoch and keeps every dendrite to verify they wire up
 configuration_confirmed: True # (bool) skip the interactive PAI setup screen and train with the settings given here
 pai_load_folder: # (str, optional) saved PAI system folder to resume from

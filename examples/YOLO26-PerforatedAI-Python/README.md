@@ -46,15 +46,9 @@ python -c "import ultralytics, perforatedai; print(ultralytics.__file__)"
 yolo cfg | grep perforate
 ```
 
-### 2. Edit your config
+### 2. New datasets
 
-Your dataset needs nothing PerforatedAI-specific, so keep your current dataset YAML. Add this line to your config, or pass it as a train argument:
-
-```yaml
-perforate_modules: [model.23.one2one_cv2.0.0, model.23.one2one_cv2.1.0, model.23.one2one_cv2.2.0]
-```
-
-`perforate_modules` puts dendrites on the first Conv of the one-to-one box branch at each pyramid level, the setup behind our results. The same paths work for every YOLO26 size, because the Detect head is layer 23 in all of them.
+Nothing has to be done for a new dataset. Keep your current dataset YAML and config. 
 
 ### 3. Train
 
@@ -130,7 +124,7 @@ If your dataset is much smaller than Cityscapes (2,975 training images), lower `
 
 ### Other target modules
 
-An empty `perforate_modules` perforates every Conv in the model. To target other modules, print the Conv paths of your model and copy the ones you want:
+The default `perforate_modules` is `[model.23.one2one_cv2.0.0, model.23.one2one_cv2.1.0, model.23.one2one_cv2.2.0]`, the first Conv of the one-to-one box branch at each pyramid level. These paths assume the Detect head is layer 23, as in every YOLO26 detection model, so set `perforate_modules` yourself for other architectures or tasks. `perforate_modules: []` perforates every Conv in the model. To target other modules, print the Conv paths of your model and copy the ones you want:
 
 ```bash
 python -c "from ultralytics import YOLO; [print(n) for n, m in YOLO('yolo26n.pt').model.named_modules() if type(m).__name__ == 'Conv']"
