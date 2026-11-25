@@ -146,6 +146,8 @@ class BaseTrainer:
             # PAI epoch-end leaves weights NCHW-contiguous while fused AdamW state needs NHWC
             # Disable `channels_last` to prevent next step from crashing
             self.args.channels_last = False
+            if self.args.amp not in {False, "fp32"}:
+                LOGGER.warning("perforate=True does not support AMP, set amp=False")
             if "epochs" not in (overrides or {}) and not self.args.resume:
                 LOGGER.info("perforate=True: setting epochs=400 as the ceiling, dendrite runs outlast the default 100")
                 self.args.epochs = 400
